@@ -68,208 +68,216 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.service.port }}
+              containerPort: {{ include "libretranslate.appPort" . }}
               protocol: TCP
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- include "libretranslate.containerSecurityContext" . | nindent 12 }}
+          {{- with (include "libretranslate.probe" (dict "probe" .Values.startupProbe "root" $)) }}
+          startupProbe:
+            {{- . | nindent 12 }}
+          {{- end }}
+          {{- with (include "libretranslate.probe" (dict "probe" .Values.readinessProbe "root" $)) }}
           readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
+            {{- . | nindent 12 }}
+          {{- end }}
+          {{- with (include "libretranslate.probe" (dict "probe" .Values.livenessProbe "root" $)) }}
           livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
+            {{- . | nindent 12 }}
+          {{- end }}
           env:
             {{- include "libretranslate.runtimeEnv" . | nindent 12 }}
-            {{- if and (.Values.appSettings.debug) (ne .Values.appSettings.debug "") }}
+            {{- if not (empty .Values.appSettings.debug) }}
             - name: LT_DEBUG
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-appsettings
                   key: debug
             {{- end }}
-            {{- if and (.Values.appSettings.ssl) (ne .Values.appSettings.ssl "") }}
+            {{- if not (empty .Values.appSettings.ssl) }}
             - name: LT_SSL
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-appsettings
                   key: ssl
             {{- end }}
-            {{- if and (.Values.appSettings.apiKeys) (ne .Values.appSettings.apiKeys "") }}
+            {{- if not (empty .Values.appSettings.apiKeys) }}
             - name: LT_API_KEYS
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-appsettings
                   key: apiKeys
             {{- end }}
-            {{- if and (.Values.appSettings.requireApiKeyOrigin) (ne .Values.appSettings.requireApiKeyOrigin "") }}
+            {{- if not (empty .Values.appSettings.requireApiKeyOrigin) }}
             - name: LT_REQUIRE_API_KEY_ORIGIN
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-appsettings
                   key: requireApiKeyOrigin
             {{- end }}
-            {{- if and (.Values.appSettings.requireApiKeySecret) (ne .Values.appSettings.requireApiKeySecret "") }}
+            {{- if not (empty .Values.appSettings.requireApiKeySecret) }}
             - name: LT_REQUIRE_API_KEY_SECRET
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-appsettings
                   key: requireApiKeySecret
             {{- end }}
-            {{- if and (.Values.appSettings.suggestions) (ne .Values.appSettings.suggestions "") }}
+            {{- if not (empty .Values.appSettings.suggestions) }}
             - name: LT_SUGGESTIONS
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-appsettings
                   key: suggestions
             {{- end }}
-            {{- if and (.Values.appSettings.disableFilesTranslation) (ne .Values.appSettings.disableFilesTranslation "") }}
+            {{- if not (empty .Values.appSettings.disableFilesTranslation) }}
             - name: LT_DISABLE_FILES_TRANSLATION
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-appsettings
                   key: disableFilesTranslation
             {{- end }}
-            {{- if and (.Values.appSettings.disableWebUi) (ne .Values.appSettings.disableWebUi "") }}
+            {{- if not (empty .Values.appSettings.disableWebUi) }}
             - name: LT_DISABLE_WEB_UI
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-appsettings
                   key: disableWebUi
             {{- end }}
-            {{- if and (.Values.appSettings.updateModels) (ne .Values.appSettings.updateModels "") }}
+            {{- if not (empty .Values.appSettings.updateModels) }}
             - name: LT_UPDATE_MODELS
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-appsettings
                   key: updateModels
             {{- end }}
-            {{- if and (.Values.appSettings.metrics) (ne .Values.appSettings.metrics "") }}
+            {{- if not (empty .Values.appSettings.metrics) }}
             - name: LT_METRICS
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-appsettings
                   key: metrics
             {{- end }}
-            {{- if and (.Values.appConfig.host) (ne .Values.appConfig.host "") }}
+            {{- if not (empty .Values.appConfig.host) }}
             - name: LT_HOST
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: host
             {{- end }}
-            {{- if and (.Values.appSettings.port) (ne .Values.appSettings.port "") }}
+            {{- if not (empty .Values.appConfig.port) }}
             - name: LT_PORT
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: port
             {{- end }}
-            {{- if and (.Values.appConfig.charLimit) (ne .Values.appConfig.charLimit "") }}
+            {{- if not (empty .Values.appConfig.charLimit) }}
             - name: LT_CHAR_LIMIT
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: charLimit
             {{- end }}
-            {{- if and (.Values.appConfig.reqLimit) (ne .Values.appConfig.reqLimit "") }}
+            {{- if not (empty .Values.appConfig.reqLimit) }}
             - name: LT_REQ_LIMIT
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: reqLimit
             {{- end }}
-            {{- if and (.Values.appConfig.reqLimitStorage) (ne .Values.appConfig.reqLimitStorage "") }}
+            {{- if not (empty .Values.appConfig.reqLimitStorage) }}
             - name: LT_REQ_LIMIT_STORAGE
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: reqLimitStorage
             {{- end }}
-            {{- if and (.Values.appConfig.batchLimit) (ne .Values.appConfig.batchLimit "") }}
+            {{- if not (empty .Values.appConfig.batchLimit) }}
             - name: LT_BATCH_LIMIT
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: batchLimit
             {{- end }}
-            {{- if and (.Values.appConfig.gaId) (ne .Values.appConfig.gaId "") }}
+            {{- if not (empty .Values.appConfig.gaId) }}
             - name: LT_GA_ID
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: gaId
             {{- end }}
-            {{- if and (.Values.appConfig.frontendLanguageSource) (ne .Values.appConfig.frontendLanguageSource "") }}
+            {{- if not (empty .Values.appConfig.frontendLanguageSource) }}
             - name: LT_FRONTEND_LANGUAGE_SOURCE
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: frontendLanguageSource
             {{- end }}
-            {{- if and (.Values.appConfig.frontendLanguageTarget) (ne .Values.appConfig.frontendLanguageTarget "") }}
+            {{- if not (empty .Values.appConfig.frontendLanguageTarget) }}
             - name: LT_FRONTEND_LANGUAGE_TARGET
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: frontendLanguageTarget
             {{- end }}
-            {{- if and (.Values.appConfig.frontendTimeout) (ne .Values.appConfig.frontendTimeout "") }}
+            {{- if not (empty .Values.appConfig.frontendTimeout) }}
             - name: LT_FRONTEND_TIMEOUT
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: frontendTimeout
             {{- end }}
-            {{- if and (.Values.appSettings.apiKeysDbPath) (ne .Values.appSettings.apiKeysDbPath "") }}
+            {{- if not (empty .Values.appConfig.apiKeysDbPath) }}
             - name: LT_API_KEYS_DB_PATH
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: apiKeysDbPath
             {{- end }}
-            {{- if and (.Values.appSettings.apiKeysRemote) (ne .Values.appSettings.apiKeysRemote "") }}
+            {{- if not (empty .Values.appConfig.apiKeysRemote) }}
             - name: LT_API_KEYS_REMOTE
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: apiKeysRemote
             {{- end }}
-            {{- if and (.Values.appConfig.getApiKeyLink) (ne .Values.appConfig.getApiKeyLink "") }}
+            {{- if not (empty .Values.appConfig.getApiKeyLink) }}
             - name: LT_GET_API_KEY_LINK
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: getApiKeyLink
             {{- end }}
-            {{- if and (.Values.appConfig.sharedStorage) (ne .Values.appConfig.sharedStorage "") }}
+            {{- if not (empty .Values.appConfig.sharedStorage) }}
             - name: LT_SHARED_STORAGE
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: sharedStorage
             {{- end }}
-            {{- if and (.Values.appConfig.loadOnly) (ne .Values.appConfig.loadOnly "") }}
+            {{- if not (empty .Values.appConfig.loadOnly) }}
             - name: LT_LOAD_ONLY
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: loadOnly
             {{- end }}
-            {{- if and (.Values.appConfig.threads) (ne .Values.appConfig.threads "") }}
+            {{- if not (empty .Values.appConfig.threads) }}
             - name: LT_THREADS
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: threads
             {{- end }}
-            {{- if and (.Values.appSettings.metricsAuthToken) (ne .Values.appSettings.metricsAuthToken "") }}
+            {{- if not (empty .Values.appConfig.metricsAuthToken) }}
             - name: LT_METRICS_AUTH_TOKEN
               valueFrom:
                 configMapKeyRef:
                   name: libretranslate-config
                   key: metricsAuthToken
             {{- end }}
-            {{- if and (.Values.appConfig.urlPrefix) (ne .Values.appConfig.urlPrefix "") }}
+            {{- if not (empty .Values.appConfig.urlPrefix) }}
             - name: LT_URL_PREFIX
               valueFrom:
                 configMapKeyRef:
@@ -319,7 +327,7 @@ spec:
   - metadata:
       name: models-volume
       labels:
-        {{- include "libretranslate.labels" . | nindent 8 }}
+        {{- include "libretranslate.pvcLabels" . | nindent 8 }}
     spec:
       accessModes:
         - {{ .Values.persistence.models.accessMode }}
@@ -334,7 +342,7 @@ spec:
   - metadata:
       name: db-volume
       labels:
-        {{- include "libretranslate.labels" . | nindent 8 }}
+        {{- include "libretranslate.pvcLabels" . | nindent 8 }}
     spec:
       accessModes:
         - {{ .Values.persistence.db.accessMode }}

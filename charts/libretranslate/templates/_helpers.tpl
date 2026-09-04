@@ -111,6 +111,88 @@ volume.
 {{- end }}
 
 {{/*
+Labels for the volumeClaimTemplates.
+
+`spec.volumeClaimTemplates` is immutable, so anything version-bearing in here
+turns every chart release into a StatefulSet the API server refuses to patch:
+`helm.sh/chart` carries the chart version and `app.kubernetes.io/version` the
+app version, so bumping either one breaks `helm upgrade` with "updates to
+statefulset spec for fields other than ... are forbidden". Only labels that
+survive an upgrade unchanged belong on a PVC template.
+*/}}
+{{- define "libretranslate.pvcLabels" -}}
+{{ include "libretranslate.selectorLabels" . }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Port LibreTranslate binds inside the pod.
+
+This is `appConfig.port`, exported as LT_PORT and used as the container port, so
+the app, the probes and the `http` port the Service targets can never disagree.
+`service.port` is a separate knob - the port the Service itself listens on -
+which reaches the container through `targetPort: http` whatever this is set to.
+*/}}
+{{- define "libretranslate.appPort" -}}
+{{- .Values.appConfig.port | default .Values.service.port | default 5000 -}}
+{{- end }}
+
+{{/*
+Path of the /health endpoint the probes poll.
+
+`appConfig.urlPrefix` mounts the whole WSGI app under the prefix, so /health
+moves with it. Asking for the unprefixed path would not fail loudly - the app
+answers it with a 301 to the prefix, which the kubelet counts as a healthy
+response - so the prefix has to be part of the path.
+*/}}
+{{- define "libretranslate.healthPath" -}}
+{{- $prefix := .Values.appConfig.urlPrefix | default "" | toString | trimSuffix "/" -}}
+{{- if and $prefix (not (hasPrefix "/" $prefix)) -}}
+{{- $prefix = printf "/%s" $prefix -}}
+{{- end -}}
+{{- printf "%s/health" $prefix -}}
+{{- end }}
+
+{{/*
+Scheme the probes talk to the container with: with `appSettings.ssl` the app
+serves TLS itself and a plain HTTP probe would never get an answer.
+*/}}
+{{- define "libretranslate.probeScheme" -}}
+{{- if has (.Values.appSettings.ssl | default "" | toString | lower) (list "true" "1") -}}
+HTTPS
+{{- else -}}
+HTTP
+{{- end -}}
+{{- end }}
+
+{{/*
+One probe block. Call with (dict "probe" .Values.<name>Probe "root" $).
+
+The probe values hold timings only; the handler is filled in here so that it
+tracks `appConfig.urlPrefix`, `appSettings.ssl` and the container port without
+the user having to restate them. A probe that brings its own `httpGet`, `exec`,
+`tcpSocket` or `grpc` block keeps it, and an empty probe renders nothing at all,
+which is how a probe is turned off.
+*/}}
+{{- define "libretranslate.probe" -}}
+{{- $root := .root -}}
+{{- $probe := deepCopy (.probe | default dict) -}}
+{{- if $probe -}}
+{{- $custom := false -}}
+{{- range $handler := list "httpGet" "exec" "tcpSocket" "grpc" -}}
+{{- if hasKey $probe $handler -}}{{- $custom = true -}}{{- end -}}
+{{- end -}}
+{{- if not $custom -}}
+{{- $_ := set $probe "httpGet" (dict
+      "path" (include "libretranslate.healthPath" $root)
+      "port" "http"
+      "scheme" (include "libretranslate.probeScheme" $root)) -}}
+{{- end -}}
+{{- toYaml $probe -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Pod-level security context.
 
 OpenShift's default `restricted-v2` SCC allocates the pod's UID, GID and fsGroup
