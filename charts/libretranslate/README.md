@@ -47,18 +47,34 @@ helm install libretranslate ./chart --namespace libretranslate --create-namespac
 
 OpenShift's default `restricted-v2` SCC assigns every pod an arbitrary UID and
 fsGroup from the namespace's allocated range, and rejects pods that pin their own
-IDs or run a container as root. The chart defaults do both, so set the OpenShift
-flag instead:
+IDs or run a container as root.
+
+**This is detected automatically.** `openshift.enabled` is left unset by default,
+which makes the chart look for the `security.openshift.io/v1` API and adapt
+itself, so a plain `helm install` works on both OpenShift and vanilla
+Kubernetes. No SCC of your own is needed - the rendered pod satisfies
+`restricted-v2` (and the Pod Security Admission `restricted` profile) as is.
+
+Set the flag explicitly only to force a mode:
 
 ```bash
-helm install libretranslate ./chart --namespace libretranslate --create-namespace \
-  --set openshift.enabled=true
+# force OpenShift mode - needed for `helm template`, which has no cluster to
+# inspect and therefore falls back to vanilla Kubernetes
+helm template libretranslate ./chart --set openshift.enabled=true
+
+# force vanilla mode even on OpenShift, e.g. when your service account is bound
+# to the anyuid or nonroot-v2 SCC and you want the pinned UID 1032
+helm install libretranslate ./chart --set openshift.enabled=false
 ```
 
-That does not require an SCC of its own - the rendered pod satisfies
-`restricted-v2` (and the Pod Security Admission `restricted` profile) as is:
+> **Careful**: if your values file is a full copy of `values.yaml`, delete the
+> `openshift.enabled` key from it. Leaving it set to `false` pins it off and the
+> pod is rejected with `unable to validate against any security context
+> constraint`.
 
-| | `openshift.enabled=false` | `openshift.enabled=true` |
+What the two modes render:
+
+| | vanilla Kubernetes | OpenShift |
 | --- | --- | --- |
 | `securityContext.fsGroup` | `1032` | dropped, assigned by the SCC |
 | `podSecurityContext.runAsUser` / `runAsGroup` | `1032` / `1032` | dropped, assigned by the SCC |
@@ -73,17 +89,24 @@ Two details follow from the arbitrary UID and are handled automatically:
 - `HOME` is exported explicitly (`homeDir`, default `/home/libretranslate`). The
   assigned UID has no `/etc/passwd` entry, so without it Python resolves `~` to
   `/` and argos-translate looks for the language models in the wrong place.
-- `XDG_CACHE_HOME` is pointed at `openshift.cacheDir` (default `/tmp/.cache`),
-  because the image owns `$HOME` as UID 1032 and an arbitrary UID cannot create
-  `$HOME/.local/cache`.
+- `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` are pointed at `openshift.cacheDir` and
+  `openshift.configDir` (default `/tmp/.cache` and `/tmp/.config`).
+  argos-translate derives a data, a config and a cache directory from `~` and
+  creates all three on import; the image owns `$HOME` as UID 1032 with mode
+  `0755`, so an arbitrary UID cannot create them there. `/tmp` is mode `1777` in
+  the image, so any UID can. `XDG_DATA_HOME` is deliberately left unset, so the
+  data directory keeps resolving to the mounted models volume.
+  Language model archives download into the cache directory, so on `/tmp` they
+  consume node ephemeral storage - point `openshift.cacheDir` at a mounted
+  volume if that matters for your nodes.
 - When `persistence.enabled` is `false`, the model and database directories are
   backed by `emptyDir` volumes rather than the image-owned paths, which the
   arbitrary UID cannot write to. The models are re-downloaded on every pod
   restart, so enable `persistence` for anything but a quick trial.
 
-If your cluster grants the service account the `nonroot-v2` SCC instead, you can
-leave `openshift.enabled=false` and keep the pinned UID 1032 that matches the
-image.
+If your cluster grants the service account the `nonroot-v2` or `anyuid` SCC
+instead, set `openshift.enabled=false` to keep the pinned UID 1032 that matches
+the image.
 
 ## Upgrade
 

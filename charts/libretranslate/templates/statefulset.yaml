@@ -42,7 +42,7 @@ spec:
           - -c
           - |
             mkdir -p {{ include "libretranslate.modelsPath" . }}/packages
-            {{- if not .Values.openshift.enabled }}
+            {{- if not (include "libretranslate.isOpenShift" .) }}
             chown -R {{ .Values.podSecurityContext.runAsUser | default 1032 }}:{{ .Values.podSecurityContext.runAsGroup | default 1032 }} {{ include "libretranslate.homeDir" . }}/.local {{ .Values.appConfig.apiKeysDbPathMount }}
             {{- end }}
 
@@ -276,7 +276,7 @@ spec:
                   name: libretranslate-config
                   key: urlPrefix
             {{- end }}
-          {{- if or .Values.persistence.enabled .Values.openshift.enabled }}
+          {{- if or .Values.persistence.enabled (include "libretranslate.isOpenShift" .) }}
           volumeMounts:
           - name: db-volume
             mountPath: {{ .Values.appConfig.apiKeysDbPathMount }}
@@ -295,7 +295,7 @@ spec:
         persistentVolumeClaim:
           claimName: models-volume
       {{- end }}
-      {{- else if and .Values.openshift.enabled (not .Values.persistence.enabled) }}
+      {{- else if and (include "libretranslate.isOpenShift" .) (not .Values.persistence.enabled) }}
       # the pod runs as an arbitrary UID that cannot write to the image-owned
       # model and database directories; emptyDir volumes inherit the
       # SCC-assigned fsGroup and are therefore writable

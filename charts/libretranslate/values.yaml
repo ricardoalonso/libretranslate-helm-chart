@@ -67,15 +67,28 @@ ingress:
 #   * runs the model pre-install init container as the pod user instead of root
 #     and skips its chown (the SCC-assigned fsGroup already makes the mounted
 #     volumes group writable),
-#   * points XDG_CACHE_HOME at a world writable directory, because the image
-#     owns $HOME as UID 1032 and an arbitrary UID cannot create $HOME/.local/cache,
+#   * redirects the argos-translate cache and config directories out of $HOME,
+#     which the image owns as UID 1032 with mode 0755 and an arbitrary UID
+#     therefore cannot write to,
 #   * backs the model and database directories with emptyDir volumes when
 #     `persistence.enabled` is false, since an arbitrary UID cannot write to the
 #     image-owned paths either.
 # No SCC of your own is needed: the defaults below satisfy `restricted-v2`.
+#
+# Left unset, this is auto-detected from the presence of the
+# `security.openshift.io/v1` API, so the chart adapts itself on OpenShift and on
+# vanilla Kubernetes with no configuration. Set it to true or false only to force
+# a mode - for instance when rendering manifests offline with `helm template`,
+# which has no cluster to inspect and therefore assumes vanilla Kubernetes.
 openshift:
-  enabled: false
+  enabled:
+  # XDG_CACHE_HOME and XDG_CONFIG_HOME for the pod. argos-translate creates both
+  # under $HOME by default, which an arbitrary UID cannot write to; /tmp is mode
+  # 1777 in the image, so any UID can. Note that language model archives are
+  # downloaded into the cache dir, which on /tmp means node ephemeral storage -
+  # point cacheDir at a mounted volume if that is a problem.
   cacheDir: /tmp/.cache
+  configDir: /tmp/.config
 
 # Home directory of the application user inside the container. Exported as HOME
 # so that "~" resolves even when the pod runs under a UID that has no
