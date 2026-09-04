@@ -57,19 +57,76 @@ ingress:
   #     hosts:
   #       - translate.example.com
 
-# Security Context
+# OpenShift / OKD compatibility
+#
+# OpenShift's default `restricted-v2` SCC assigns every pod an arbitrary UID and
+# fsGroup out of the namespace's allocated range and rejects pods that pin their
+# own IDs or run a container as root. Enabling this:
+#   * drops runAsUser / runAsGroup / fsGroup from the security contexts below so
+#     the SCC can assign them,
+#   * runs the model pre-install init container as the pod user instead of root
+#     and skips its chown (the SCC-assigned fsGroup already makes the mounted
+#     volumes group writable),
+#   * redirects the argos-translate cache and config directories out of $HOME,
+#     which the image owns as UID 1032 with mode 0755 and an arbitrary UID
+#     therefore cannot write to,
+#   * backs the model and database directories with emptyDir volumes when
+#     `persistence.enabled` is false, since an arbitrary UID cannot write to the
+#     image-owned paths either.
+# No SCC of your own is needed: the defaults below satisfy `restricted-v2`.
+#
+# Left unset, this is auto-detected from the presence of the
+# `security.openshift.io/v1` API, so the chart adapts itself on OpenShift and on
+# vanilla Kubernetes with no configuration. Set it to true or false only to force
+# a mode - for instance when rendering manifests offline with `helm template`,
+# which has no cluster to inspect and therefore assumes vanilla Kubernetes.
+openshift:
+  enabled:
+  # XDG_CACHE_HOME and XDG_CONFIG_HOME for the pod. argos-translate creates both
+  # under $HOME by default, which an arbitrary UID cannot write to; /tmp is mode
+  # 1777 in the image, so any UID can. Note that language model archives are
+  # downloaded into the cache dir, which on /tmp means node ephemeral storage -
+  # point cacheDir at a mounted volume if that is a problem.
+  cacheDir: /tmp/.cache
+  configDir: /tmp/.config
+
+# Home directory of the application user inside the container. Exported as HOME
+# so that "~" resolves even when the pod runs under a UID that has no
+# /etc/passwd entry, which is always the case on OpenShift.
+homeDir: /home/libretranslate
+
+# Pod level security context. Applies to every container in the pod and controls
+# the ownership of the mounted volumes.
+# On OpenShift (openshift.enabled=true) fsGroup, runAsUser and runAsGroup are
+# dropped from this block and assigned by the SCC instead.
 securityContext:
   fsGroup: 1032
+  seccompProfile:
+    type: RuntimeDefault
 
-# Security Context for init container
-initContainerSecurityContext:
-  runAsUser: 0
-  runAsGroup: 0
-
-# Pod Security Context
+# Container level security context for the LibreTranslate container.
+# On OpenShift (openshift.enabled=true) runAsUser and runAsGroup are dropped
+# from this block and assigned by the SCC instead.
 podSecurityContext:
   runAsUser: 1032
   runAsGroup: 1032
+  # kept at container level, not pod level: the init container below runs as
+  # root off OpenShift and a pod-wide runAsNonRoot would make the kubelet
+  # refuse to start it
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+# Security context for the init container that fixes up volume permissions and
+# pre-installs the language models. It needs root to chown the freshly
+# provisioned volumes. Ignored when openshift.enabled=true, where the init
+# container reuses podSecurityContext and the chown is skipped.
+initContainerSecurityContext:
+  runAsUser: 0
+  runAsGroup: 0
 
 # Persistent settings
 # if you don't want to download a copy of the models per pod, you can use a shared storage like an nfs storage class
