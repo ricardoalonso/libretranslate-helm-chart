@@ -1,0 +1,74 @@
+{{/*
+OpenShift Route. Rendered instead of the Ingress when `ingress.kind` resolves to
+"route" - which it does by default on OpenShift/OKD, since `route.openshift.io`
+only exists there.
+
+A Route carries a single host and a single path, so one is rendered per
+host/path pair in `ingress.hosts`. The first keeps the release name, the rest get
+a numeric suffix.
+*/}}
+{{- if and .Values.ingress.enabled (eq (include "libretranslate.ingressKind" .) "route") -}}
+{{- include "libretranslate.validateIngressTLS" . -}}
+{{- $fullName := include "libretranslate.fullname" . -}}
+{{- $route := .Values.ingress.route | default dict -}}
+{{- $termination := $route.termination | default "edge" -}}
+{{- if not (has $termination (list "edge" "reencrypt" "passthrough")) -}}
+{{- fail (printf "ingress.route.termination must be one of edge, reencrypt or passthrough - got %q" $termination) -}}
+{{- end -}}
+{{- $redirect := and .Values.ingress.redirectHttpToHttps (not (empty .Values.ingress.tls)) -}}
+{{- $insecure := $route.insecureEdgeTerminationPolicy | default (ternary "Redirect" "None" $redirect) -}}
+{{- $i := 0 -}}
+{{- range $host := .Values.ingress.hosts }}
+{{- $tls := include "libretranslate.tlsForHost" (dict "host" $host.host "root" $) | fromYaml }}
+{{- range $path := $host.paths }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ if eq $i 0 }}{{ $fullName }}{{ else }}{{ printf "%s-%d" $fullName $i }}{{ end }}
+  labels:
+    {{- include "libretranslate.labels" $ | nindent 4 }}
+  {{- with (include "libretranslate.ingressAnnotations" $) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  host: {{ $host.host | quote }}
+  {{- if and $path.path (ne $termination "passthrough") }}
+  path: {{ $path.path | quote }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ $fullName }}
+    weight: 100
+  port:
+    targetPort: http
+  {{- if $tls }}
+  tls:
+    termination: {{ $termination }}
+    insecureEdgeTerminationPolicy: {{ $insecure }}
+    {{- if ne $termination "passthrough" }}
+    {{- if and $tls.certificate $tls.privateKey }}
+    certificate: |
+      {{- $tls.certificate | trim | nindent 6 }}
+    key: |
+      {{- $tls.privateKey | trim | nindent 6 }}
+    {{- if $tls.caCertificate }}
+    caCertificate: |
+      {{- $tls.caCertificate | trim | nindent 6 }}
+    {{- end }}
+    {{- else if $tls.secretName }}
+    externalCertificate:
+      name: {{ $tls.secretName | quote }}
+    {{- end }}
+    {{- if and (eq $termination "reencrypt") $route.destinationCACertificate }}
+    destinationCACertificate: |
+      {{- $route.destinationCACertificate | trim | nindent 6 }}
+    {{- end }}
+    {{- end }}
+  {{- end }}
+  wildcardPolicy: {{ $route.wildcardPolicy | default "None" }}
+{{- $i = add1 $i }}
+{{- end }}
+{{- end }}
+{{- end }}

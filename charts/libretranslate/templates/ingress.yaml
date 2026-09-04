@@ -1,12 +1,15 @@
-{{- if .Values.ingress.enabled -}}
+{{- if and .Values.ingress.enabled (eq (include "libretranslate.ingressKind" .) "ingress") -}}
+{{- include "libretranslate.validateIngressTLS" . -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "libretranslate.fullname" . }}
   labels:
     {{- include "libretranslate.labels" . | nindent 4 }}
+  {{- with (include "libretranslate.ingressAnnotations" .) }}
   annotations:
-    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
@@ -15,10 +18,16 @@ spec:
   tls:
   {{- range .Values.ingress.tls }}
     - hosts:
+        {{- if .hosts }}
         {{- range .hosts }}
         - {{ . | quote }}
         {{- end }}
-      secretName: {{ .secretName }}
+        {{- else }}
+        {{- range $.Values.ingress.hosts }}
+        - {{ .host | quote }}
+        {{- end }}
+        {{- end }}
+      secretName: {{ include "libretranslate.tlsSecretName" (dict "entry" . "root" $) }}
   {{- end }}
   {{- end }}
   rules:
@@ -26,7 +35,6 @@ spec:
     - host: {{ .host | quote }}
       http:
         paths:
-          {{- $fullName := include "libretranslate.fullname" $ }}
           {{- range .paths }}
           - path: {{ .path }}
             pathType: {{ .pathType }}

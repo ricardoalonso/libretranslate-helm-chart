@@ -153,3 +153,97 @@ runs with the same context as the app container.
 {{- toYaml (.Values.initContainerSecurityContext | default dict) -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Which resource the service is exposed with: "ingress" or "route".
+
+`ingress.kind` is auto by default, which picks an OpenShift Route on OpenShift
+and a Kubernetes Ingress everywhere else. `route.openshift.io/v1` does not exist
+on vanilla Kubernetes, so asking for a Route there is a hard error rather than a
+manifest the API server would reject.
+*/}}
+{{- define "libretranslate.ingressKind" -}}
+{{- $kind := .Values.ingress.kind | default "auto" | toString | lower -}}
+{{- if eq $kind "auto" -}}
+{{- if include "libretranslate.isOpenShift" . }}route{{ else }}ingress{{ end -}}
+{{- else if eq $kind "ingress" -}}
+ingress
+{{- else if eq $kind "route" -}}
+{{- if include "libretranslate.isOpenShift" . -}}
+route
+{{- else -}}
+{{- fail "ingress.kind=route needs OpenShift/OKD: the route.openshift.io/v1 API does not exist on vanilla Kubernetes. Use ingress.kind=ingress, or set openshift.enabled=true if you are rendering Routes offline with `helm template`." -}}
+{{- end -}}
+{{- else -}}
+{{- fail (printf "ingress.kind must be one of auto, ingress or route - got %q" $kind) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The `ingress.tls` entry that serves a given host, as YAML - empty when the host
+is served over plain HTTP. Call with (dict "host" <host> "root" $) and pipe the
+result through `fromYaml`.
+
+An entry without `hosts` serves every host, which keeps the common single
+certificate case down to one block. First match wins.
+*/}}
+{{- define "libretranslate.tlsForHost" -}}
+{{- $host := .host -}}
+{{- $found := dict -}}
+{{- range .root.Values.ingress.tls -}}
+{{- if and (empty $found) (or (empty .hosts) (has $host .hosts)) -}}
+{{- $found = . -}}
+{{- end -}}
+{{- end -}}
+{{- if not (empty $found) -}}
+{{- toYaml $found -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Name of the TLS secret an `ingress.tls` entry uses. Call with
+(dict "entry" <entry> "root" $).
+*/}}
+{{- define "libretranslate.tlsSecretName" -}}
+{{- $entry := .entry | default dict -}}
+{{- $entry.secretName | default (printf "%s-tls" (include "libretranslate.fullname" .root)) -}}
+{{- end }}
+
+{{/*
+Annotations for the Ingress or Route.
+
+A Kubernetes Ingress has no portable field for "redirect HTTP to HTTPS", so with
+`ingress.redirectHttpToHttps` the `ingress.redirectAnnotations` are merged in on
+top of the configured ones - anything set in `ingress.annotations` wins, so the
+defaults can be overridden per key. Routes express the redirect through
+`insecureEdgeTerminationPolicy` instead and get the annotations unchanged.
+*/}}
+{{- define "libretranslate.ingressAnnotations" -}}
+{{- $ann := deepCopy (.Values.ingress.annotations | default dict) -}}
+{{- if and .Values.ingress.redirectHttpToHttps (not (empty .Values.ingress.tls)) (eq (include "libretranslate.ingressKind" .) "ingress") -}}
+{{- $ann = merge $ann (deepCopy (.Values.ingress.redirectAnnotations | default dict)) -}}
+{{- end -}}
+{{- $out := list -}}
+{{- range $k, $v := $ann -}}
+{{- $out = append $out (printf "%s: %s" $k ($v | quote)) -}}
+{{- end -}}
+{{- join "\n" $out -}}
+{{- end }}
+
+{{/*
+Validate the `ingress.tls` entries. Renders nothing; include it for the side
+effect of failing early with a readable message instead of letting a half
+configured certificate reach the API server.
+*/}}
+{{- define "libretranslate.validateIngressTLS" -}}
+{{- range $i, $entry := .Values.ingress.tls -}}
+{{- if and (or $entry.certificate $entry.privateKey) (not (and $entry.certificate $entry.privateKey)) -}}
+{{- fail (printf "ingress.tls[%d] sets only one of certificate/privateKey - provide both to have the chart install the certificate, or neither to reference a secretName you created yourself" $i) -}}
+{{- end -}}
+{{- if and (empty $entry.certificate) (empty $entry.secretName) -}}
+{{- if ne (include "libretranslate.ingressKind" $) "route" -}}
+{{- fail (printf "ingress.tls[%d] needs either a secretName to reference or an inline certificate/privateKey pair" $i) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}

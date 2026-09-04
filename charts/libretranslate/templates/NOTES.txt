@@ -1,9 +1,24 @@
 1. Get the application URL by running these commands:
-{{- if .Values.ingress.enabled }}
-  http{{ if .Values.ingress.tls }}s{{ end }}://{{ index .Values.ingress.hosts 0 "host" }}{{ index .Values.ingress.hosts 0 "paths" 0 "path" }}
-  {{- if .name }}
-  - http{{ if .Values.ingress.tls }}s{{ end }}://{{ .name }}{{ .path }}
-  {{- end }}
+{{- if and .Values.ingress.enabled .Values.ingress.hosts }}
+{{- $kind := include "libretranslate.ingressKind" . }}
+{{- range .Values.ingress.hosts }}
+{{- $tls := include "libretranslate.tlsForHost" (dict "host" .host "root" $) | fromYaml }}
+{{- $host := .host }}
+{{- range .paths }}
+  http{{ if $tls }}s{{ end }}://{{ $host }}{{ .path }}
+{{- end }}
+{{- end }}
+{{- if eq $kind "route" }}
+
+  Exposed with {{ if gt (len .Values.ingress.hosts) 1 }}OpenShift Routes{{ else }}an OpenShift Route{{ end }}:
+
+  oc get route -n {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}"
+{{- end }}
+{{- if and .Values.ingress.redirectHttpToHttps (empty .Values.ingress.tls) }}
+
+  NOTE: ingress.redirectHttpToHttps is on but no ingress.tls entry is configured,
+        so there is no HTTPS endpoint to redirect to and the redirect is not set up.
+{{- end }}
 {{- else if contains "NodePort" .Values.service.type }}
   export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "libretranslate.fullname" . }})
   export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
