@@ -6,4 +6,4 @@ sources:
   - https://github.com/LibreTranslate/LibreTranslate/
   - https://github.com/ricardoalonso/libretranslate-helm-chart/
 icon: https://libretranslate.com/static/favicon.ico
-version: 0.2.1
+version: 0.2.2
