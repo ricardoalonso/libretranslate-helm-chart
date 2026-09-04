@@ -43,6 +43,48 @@ Alternatively, a YAML file that specifies the values for the parameters can be p
 helm install libretranslate ./chart --namespace libretranslate --create-namespace -f values.yaml
 ```
 
+## OpenShift / OKD
+
+OpenShift's default `restricted-v2` SCC assigns every pod an arbitrary UID and
+fsGroup from the namespace's allocated range, and rejects pods that pin their own
+IDs or run a container as root. The chart defaults do both, so set the OpenShift
+flag instead:
+
+```bash
+helm install libretranslate ./chart --namespace libretranslate --create-namespace \
+  --set openshift.enabled=true
+```
+
+That does not require an SCC of its own - the rendered pod satisfies
+`restricted-v2` (and the Pod Security Admission `restricted` profile) as is:
+
+| | `openshift.enabled=false` | `openshift.enabled=true` |
+| --- | --- | --- |
+| `securityContext.fsGroup` | `1032` | dropped, assigned by the SCC |
+| `podSecurityContext.runAsUser` / `runAsGroup` | `1032` / `1032` | dropped, assigned by the SCC |
+| `seccompProfile` | `RuntimeDefault` | `RuntimeDefault` |
+| `capabilities` | `drop: [ALL]` | `drop: [ALL]` |
+| `allowPrivilegeEscalation` | `false` | `false` |
+| init container | runs as root to `chown` the volumes | runs as the pod user, no `chown` |
+| models / db dirs without persistence | image directories | `emptyDir` volumes |
+
+Two details follow from the arbitrary UID and are handled automatically:
+
+- `HOME` is exported explicitly (`homeDir`, default `/home/libretranslate`). The
+  assigned UID has no `/etc/passwd` entry, so without it Python resolves `~` to
+  `/` and argos-translate looks for the language models in the wrong place.
+- `XDG_CACHE_HOME` is pointed at `openshift.cacheDir` (default `/tmp/.cache`),
+  because the image owns `$HOME` as UID 1032 and an arbitrary UID cannot create
+  `$HOME/.local/cache`.
+- When `persistence.enabled` is `false`, the model and database directories are
+  backed by `emptyDir` volumes rather than the image-owned paths, which the
+  arbitrary UID cannot write to. The models are re-downloaded on every pod
+  restart, so enable `persistence` for anything but a quick trial.
+
+If your cluster grants the service account the `nonroot-v2` SCC instead, you can
+leave `openshift.enabled=false` and keep the pinned UID 1032 that matches the
+image.
+
 ## Upgrade
 
 Run the following command to upgrade your LibreTranslate installation. This command will use the Helm chart in the ./chart directory, apply the custom values from values.yaml, and deploy the upgrade to the `libretranslate` namespace:
