@@ -36,9 +36,20 @@ service:
   port: 5000
 
 # Ingress settings
+#
+# The service can be exposed either with a Kubernetes Ingress or with an
+# OpenShift Route. `kind` picks which one:
+#   auto    - Route on OpenShift/OKD, Ingress on vanilla Kubernetes (default,
+#             follows the same detection as `openshift.enabled` below)
+#   ingress - always a networking.k8s.io/v1 Ingress. Works on OpenShift too,
+#             which turns it into a Route for you.
+#   route   - always a route.openshift.io/v1 Route. Rejected on vanilla
+#             Kubernetes, which has no such API; when rendering Routes offline
+#             with `helm template`, force detection with openshift.enabled=true.
 ingress:
   enabled: false
-  className: ""  # set this to the name of the ingress controller class to use like nginx
+  kind: auto
+  className: ""  # set this to the name of the ingress controller class to use like nginx. Ignored by Routes.
   annotations:
     # cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/proxy-body-size: 10m
@@ -52,10 +63,80 @@ ingress:
       paths:
       - path: /
         pathType: Prefix
+
+  # HTTPS certificates. One entry per certificate; its `hosts` list says which
+  # of the hosts above it serves, and an entry without `hosts` serves all of
+  # them. Leave the list empty to be served over plain HTTP.
+  #
+  # Either reference a TLS secret you created yourself
+  #
+  #     kubectl create secret tls libretranslate-secret-tls --cert=tls.crt --key=tls.key
+  #
+  # or hand the PEM certificate and private key to the chart, which then creates
+  # the secret for you (Ingress) or inlines them into the Route. `certificate`
+  # should hold the full chain, leaf certificate first; `caCertificate` is
+  # optional and only for a chain the clients would not otherwise trust.
+  #
+  # Keys are secrets: prefer `--set-file` over committing them to a values file,
+  #
+  #     helm install ... --set-file ingress.tls[0].certificate=tls.crt \
+  #                      --set-file ingress.tls[0].privateKey=tls.key
+  tls: []
   # tls:
   #   - secretName: libretranslate-secret-tls
   #     hosts:
   #       - translate.example.com
+  #   - hosts:
+  #       - translate.example.com
+  #     certificate: |
+  #       -----BEGIN CERTIFICATE-----
+  #       ...
+  #       -----END CERTIFICATE-----
+  #     privateKey: |
+  #       -----BEGIN PRIVATE KEY-----
+  #       ...
+  #       -----END PRIVATE KEY-----
+  #     caCertificate: |
+  #       -----BEGIN CERTIFICATE-----
+  #       ...
+  #       -----END CERTIFICATE-----
+
+  # Redirect plain http:// requests to https://. Needs a `tls` entry above -
+  # without one there is nothing to redirect to and this is ignored.
+  #
+  # On a Route this is `spec.tls.insecureEdgeTerminationPolicy: Redirect`.
+  # An Ingress has no portable field for it, so `redirectAnnotations` are merged
+  # into the annotations above instead. They default to the ingress-nginx ones -
+  # replace them for another controller (traefik, HAProxy, ...). Anything you set
+  # in `annotations` wins over them, key by key.
+  redirectHttpToHttps: false
+  redirectAnnotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+  # OpenShift Route specifics. Ignored when an Ingress is rendered.
+  # A Route holds one host and one path, so one Route is rendered per host/path
+  # pair above: the first keeps the release name, the rest get a numeric suffix.
+  route:
+    # Where TLS is terminated:
+    #   edge        - at the router, which talks plain HTTP to the pod (default)
+    #   reencrypt   - at the router, which opens a new TLS connection to the pod;
+    #                 needs appSettings.ssl=true and usually destinationCACertificate
+    #   passthrough - not at all, the pod serves TLS itself (appSettings.ssl=true).
+    #                 Routes cannot match a path in this mode, so `paths` above
+    #                 is ignored and the whole host is routed.
+    termination: edge
+    # CA the router uses to verify the pod's own certificate. reencrypt only.
+    destinationCACertificate: ""
+    # What happens to plain http:// requests: None (refused), Redirect, or Allow
+    # (served over http, edge/reencrypt only). Empty follows
+    # redirectHttpToHttps: Redirect when it is true, None when it is false.
+    insecureEdgeTerminationPolicy: ""
+    wildcardPolicy: None
+    # A `tls` entry with only a `secretName` and no inline certificate becomes
+    # `spec.tls.externalCertificate`, which needs OpenShift 4.16+ with the
+    # RouteExternalCertificate feature gate enabled and grants the router read
+    # access to that secret. Inline certificate/privateKey work on every version.
 
 # OpenShift / OKD compatibility
 #
