@@ -31,6 +31,10 @@ image:
 imagePullSecrets: []
 
 # Service settings
+#
+# `port` is the port the Service itself listens on. It is independent of the
+# port LibreTranslate binds inside the pod, which is `appConfig.port` below -
+# the Service targets that one by name, so the two are free to differ.
 service:
   type: ClusterIP
   port: 5000
@@ -234,23 +238,44 @@ resources:
     cpu: 500m
     memory: 1Gi
 
-# Readiness probe for kubernetes
-readinessProbe:
-  exec:
-    command:
-    - /app/venv/bin/python
-    - /app/scripts/healthcheck.py
-  initialDelaySeconds: 10
-  periodSeconds: 5
+# Probes
+#
+# All three poll LibreTranslate's /health endpoint over HTTP on the container
+# port. The chart fills the handler in for you so that it follows
+# `appConfig.port`, `appConfig.urlPrefix` and `appSettings.ssl` - what is
+# configured below is the timing. Give a probe an `httpGet`, `exec` or
+# `tcpSocket` block of its own to replace the handler, or empty it out
+# (`livenessProbe:`) to drop that probe entirely.
+#
+# These used to exec `scripts/healthcheck.py`, which forks a CPython
+# interpreter and imports `requests` on every check. That costs far more than
+# the 1 second `timeoutSeconds` defaults to, so under a busy `resources.limits`
+# the checks were timing out and being counted as failures.
 
-# Liveness probe for kubernetes
+# Covers the boot: the image downloads the sentence-boundary models and loads
+# the language models before gunicorn binds, which on a cold cache takes
+# minutes. The liveness and readiness probes do not run until this one passes,
+# and a container still in its startup window is never restarted for failing
+# it, so `failureThreshold` x `periodSeconds` is the boot budget - 10 minutes
+# here. Raise it if you load a lot of languages onto slow storage.
+startupProbe:
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 60
+
+# Whether the pod is listed in the Service's endpoints and receives traffic.
+readinessProbe:
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Restarts the container when it stops answering. Deliberately slacker than the
+# readiness probe above: a pod tied up by a large batch translation should drop
+# out of the Service and come back, not be killed and lose the work.
 livenessProbe:
-  exec:
-    command:
-    - /app/venv/bin/python
-    - scripts/healthcheck.py
-  initialDelaySeconds: 10
-  periodSeconds: 5
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 6
 
 # Auth secret for basic authentication
 # generate base64-user-password-pair with:
@@ -282,7 +307,7 @@ appSettings:
 # Configuration Parameters
 appConfig:
   host:                  "0.0.0.0"              # Set host to bind the server to (Default: 127.0.0.1)
-  port:                  "5000"                 # Set port to bind the server to (Default: 5000)
+  port:                  "5000"                 # Set port to bind the server to. Also the container port, which `service.port` targets by name (Default: 5000)
   charLimit:             "null"                 # Set character limit (Default: No limit)
   reqLimit:              "null"                 # Set maximum number of requests per minute per client (outside of limits set by api keys) (Default: No limit)
   reqLimitStorage:       "memory://"            # Storage URI to use for request limit data storage. See Flask Limiter (Default: memory://)

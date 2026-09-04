@@ -43,6 +43,36 @@ Alternatively, a YAML file that specifies the values for the parameters can be p
 helm install libretranslate ./chart --namespace libretranslate --create-namespace -f values.yaml
 ```
 
+### Ports
+
+`appConfig.port` is the port LibreTranslate binds inside the pod; it is exported
+as `LT_PORT` and used as the container port. `service.port` is the port the
+Service listens on and is independent of it - the Service reaches the container
+through a named port, so changing one does not require changing the other.
+
+### Health checks
+
+The startup, readiness and liveness probes all GET LibreTranslate's `/health`
+endpoint. The handler is derived from `appConfig.port`, `appConfig.urlPrefix`
+and `appSettings.ssl`, so only the timings are configured in `values.yaml`.
+
+The startup probe is the one to tune. Neither of the other two runs until it
+passes, and the container is not restarted while it is still starting, so
+`failureThreshold` x `periodSeconds` is how long the pod is given to download
+the sentence-boundary models and load the language models before it is
+considered stuck - 10 minutes by default:
+
+```bash
+--set startupProbe.failureThreshold=180   # 30 minutes
+```
+
+Give a probe an `httpGet`, `exec` or `tcpSocket` block of its own to replace the
+handler, or set it empty to remove that probe altogether:
+
+```bash
+--set livenessProbe=null
+```
+
 ## HTTPS
 
 `ingress.enabled` exposes the service, and `ingress.kind` decides with what:
