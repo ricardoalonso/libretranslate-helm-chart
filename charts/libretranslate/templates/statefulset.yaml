@@ -284,6 +284,9 @@ spec:
                   name: libretranslate-config
                   key: urlPrefix
             {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- if or .Values.persistence.enabled (include "libretranslate.isOpenShift" .) }}
           volumeMounts:
           - name: db-volume
@@ -318,10 +321,10 @@ spec:
       {{- toYaml .Values.tolerations   | nindent 6 }}
       {{- end }}
   {{- if and .Values.persistence.enabled (or (eq .Values.persistence.models.accessMode "ReadWriteOnce") (eq .Values.persistence.db.accessMode "ReadWriteOnce")) }}
-  # still in beta, but this will allow us to delete the volumes when the statefulset is scaled down
+  {{- with .Values.persistence.retentionPolicy }}
   persistentVolumeClaimRetentionPolicy:
-    whenDeleted: Retain
-    whenScaled: Delete
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   volumeClaimTemplates:
   {{- if eq .Values.persistence.models.accessMode "ReadWriteOnce" }}
   - metadata:

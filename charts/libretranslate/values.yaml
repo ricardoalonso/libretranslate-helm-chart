@@ -226,8 +226,21 @@ persistence:
   models:
     storageClass: ""
     accessMode: "ReadWriteOnce"
-    size: "10Gi"  # as of August 2023, the models are about 6.6GB in size for all languages
+    size: "20Gi"  # as of August 2026, the models are about 9.2GB in size for all languages
+  # What happens to volumeClaimTemplate PVCs when the StatefulSet is deleted or
+  # scaled down. `whenScaled: Delete` destroys the PVC of every removed replica,
+  # so `oc scale --replicas=0` silently deletes the data. Retain by default: a
+  # volume is cheaper to keep than a database is to rebuild.
+  retentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
 
+# Extra environment for the LibreTranslate container, as a plain env list.
+# Needed for anything the chart does not model - notably GUNICORN_CMD_ARGS,
+# which is the only way to select the gunicorn worker class.
+extraEnv: []
+#  - name: GUNICORN_CMD_ARGS
+#    value: "--worker-class gthread --threads 8"
 
 # Resource limits
 resources:
